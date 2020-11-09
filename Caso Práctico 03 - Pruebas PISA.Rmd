@@ -1,0 +1,196 @@
+---
+title: "CP03 - Informe PISA"
+author: "Diego Senso González"
+date: "9/11/2020"
+output:
+  html_document:
+    theme: united
+    df_print: paged
+    toc: yes
+    toc_depth: 5
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+---
+
+## Objetivo
+El objetivo del presente informe es modelizar la relación entre la puntuación media en las pruebas (Overall) con respecto al resto de variables existentes utilizando modelos de splines y GAM.
+
+Carga de librerías:
+```{r warning=FALSE, echo=FALSE, message=FALSE}
+library(tidyverse)
+library(broom)
+library(flextable)
+library(mgcv)
+library(reshape2)
+library(readr)
+library(ggplot2)
+library(skimr)
+library(imputeTS)
+```
+
+## Carga de los datos y tratamiento y limpieza.
+
+```{r results='hide'}
+pisa <- read.csv("pisasci2006.csv", sep = ";")
+View(pisa)
+
+#Sustitución de NAs por valores medios
+pisa <- na_mean(pisa)
+
+#Ver si hay duplicados
+duplicated(pisa)
+nrow(pisa[duplicated(pisa$Country),])
+```
+
+## Visualización del dataframe
+
+Graficamos las diferentes variables existentes en el dataframe con respecto al Overall para obtener una idea visual de cómo se distribuyen.
+```{r}
+# Visualización del dataframe
+head(pisa)
+ggplot(pisa, aes(Issues, Overall)) +
+  geom_point(color = "purple")
+
+ggplot(pisa, aes(Explain, Overall)) +
+  geom_point(color = "purple")
+
+ggplot(pisa, aes(Evidence, Overall)) +
+  geom_point(color = "purple")
+
+ggplot(pisa, aes(Interest, Overall)) +
+  geom_point(color = "purple")
+
+ggplot(pisa, aes(Support, Overall)) +
+  geom_point(color = "purple")
+
+ggplot(pisa, aes(Income, Overall)) +
+  geom_point(color = "purple")
+
+ggplot(pisa, aes(Health, Overall)) +
+  geom_point(color = "purple")
+
+ggplot(pisa, aes(Edu, Overall)) +
+  geom_point(color = "purple")
+
+ggplot(pisa, aes(HDI, Overall)) +
+  geom_point(color = "purple")
+
+```
+
+Adicionalmente, realizamos un skim para observar también la distribución de las variables, esta vez desde una perspectiva numérica:
+```{r}
+skim(pisa)
+```
+
+## Estimación de grados de libertad por Cross-Validation
+Estimamos los grados de libertad bajo CV de cada una de las variables declaradas como clave, con respecto a "Overall".
+
+```{r warning=FALSE}
+fit1 <- smooth.spline(pisa$Interest, pisa$Overall, cv=TRUE)
+fit1$df
+```
+
+
+```{r warning=FALSE}
+fit2 <- smooth.spline(pisa$Support, pisa$Overall, cv=TRUE)
+fit2$df
+```
+
+
+```{r warning=FALSE}
+fit3 <- smooth.spline(pisa$Income, pisa$Overall, cv=TRUE)
+fit3$df
+```
+
+
+```{r warning=FALSE}
+fit4 <- smooth.spline(pisa$Health, pisa$Overall, cv=TRUE)
+fit4$df
+```
+
+```{r warning=FALSE}
+fit5 <- smooth.spline(pisa$Edu, pisa$Overall, cv=TRUE)
+fit5$df
+```
+
+```{r warning=FALSE}
+fit6 <- smooth.spline(pisa$HDI, pisa$Overall, cv=TRUE)
+fit6$df
+```
+
+
+## Construcción del Modelo GAM
+Contruimos el modelo GAM con el que pretendemos explicar la nota media de los países (Overall) con las variables "Income", "Support", "Edu" y "Health", que hacen referencia a cuestiones económicas, de apoyo a la investigación, de educación, y de salud respectivamente para cada país. En este caso, introducimos todas las variables.
+
+```{r}
+
+# Modelo GAM
+gam_mod <- gam(Overall ~ s(Income) + s(Support) + s(Edu) + s(Health) + s(HDI),   data = pisa)
+summary(gam_mod)
+
+# Representación gráfica
+par(mfrow=c(2,3))
+plot(gam_mod, residuals = TRUE, pch = 1)
+coef(gam_mod)
+par(mfrow=c(1,1))
+```
+Las variables de Income y Edu resultan ser significativas. 
+
+## Construcción de Modelo GAM 2
+Creamos un nuevo modelo GAM con diferente número de splines para luego contrastar cuál de los dos modelos sería mejor. En este caso, mantenemos el spline a las variables "Income" y "Edu".
+
+```{r}
+# Modelo GAM 2
+gam_mod2 <- gam(Overall ~ s(Income)+ s(Edu) + Support + Health + HDI,   data = pisa)
+summary(gam_mod2)
+
+# Representación gráfica
+par(mfrow=c(1,3))
+plot(gam_mod2, residuals = TRUE, pch = 1)
+coef(gam_mod2)
+par(mfrow=c(1,1))
+```
+
+## Construcción de Modelo GAM 3
+
+```{r}
+# Modelo GAM 3
+gam_mod3 <- gam(Overall ~ s(Income) + Edu + Support + Health + HDI,   data = pisa)
+summary(gam_mod3)
+
+# Representación gráfica
+par(mfrow=c(1,3))
+plot(gam_mod3, residuals = TRUE, pch = 1)
+coef(gam_mod3)
+par(mfrow=c(1,1))
+```
+Al crear un modelo con todas las variables en forma lineal, un mayor número de ellas resultan tener calidad explicativa.
+
+Utilizamos el contraste anova para ver cuál es el mejor modelo para explicar la variable "Overall".
+
+```{r echo=FALSE}
+anova(gam_mod, gam_mod2, gam_mod3)
+```
+
+El modelo con dos splines y tres variables lineales resulta ser mejor que el que tiene cinco, debido a que la "Deviance" que se obtiene se reduce. Además, el modelo que solo cuenta con un spline es mejor que los dos anteriores.
+
+Utilizando el mejor modelo de esos dos, contruimos otro modelo GAM con 3 basis functions, y otro con 20. También procedemos a visualizarlos.
+
+## Basis functions
+
+```{r}
+# Modelo GAM con 3 basis functions
+gam_mod_k3 <- gam(Overall ~ s(Income, k = 3), data = pisa)
+
+# Modelo GAM con 20 basis functions
+gam_mod_k20 <- gam(Overall ~ s(Income, k = 20), data = pisa)
+
+# Visualización de cada uno
+plot(gam_mod_k3, residuals = TRUE, pch = 1)
+plot(gam_mod_k20, residuals = TRUE, pch = 1)
+```
+
+Al incluir el parámetro k = 3, se observar que la gráfica sigue manteniendo una curva suave y no excesivamente pegada a cada uno de los puntos en la diferentes variables. Sin embargo, al utilizar el valor k = 20, las curvas de las variables "Income" y "Edu" pierden suavidad, acercándose más a los diferentes puntos presentes en la gráfica. Con k = 20, este sería un modelo más ajustado, pero podría arriesgarse a caer en Overfitting.
+
+FIN.
